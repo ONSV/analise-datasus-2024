@@ -41,67 +41,146 @@ Em dezembro de 2025, o Ministério da Saúde disponibilizou a base de dados cons
 
 A quantidade de óbitos anuais no trânsito brasileiro cresceu novamente. Em 2024, o Brasil apresentou um número de **37.150** óbitos no trânsito, um **aumento de 2.269 óbitos** em comparação com os dados de 2023, o que representa uma variação percentual de **6,50%**. Os gráficos a seguir apresentam a quantidade absoluta de óbitos por ano no Brasil.
 
-```{r}
 
-mortes_ano_decada <- rtdeaths_tbl |> 
-  count(ano_ocorrencia) |> 
-  drop_na() |> 
-  mutate(var = (n - lag(n)) / lag(n),
-         abs = lag(n) - n) |>
+```{r}
+library(plotly)
+library(crosstalk)
+library(tidyverse)
+
+df_completo <- rtdeaths_tbl |> 
   filter(ano_ocorrencia > 2010) |> 
-  mutate(ano_ocorrencia = as.character(ano_ocorrencia))
+  count(ano_ocorrencia, nome_uf_ocor) |> 
+  group_by(nome_uf_ocor) |> 
+  mutate(var = (n - lag(n)) / lag(n)) |> 
+  ungroup() |> 
+  bind_rows(
+    rtdeaths_tbl |> 
+      filter(ano_ocorrencia > 2010) |> 
+      count(ano_ocorrencia) |> 
+      mutate(var = (n - lag(n)) / lag(n), nome_uf_ocor = "Brasil")
+  ) |> 
+  mutate(
+    ano_ocorrencia = as.character(ano_ocorrencia),
+    var_signal = if_else(var > 0, "Aumento", "Queda")
+  ) |> 
+  drop_na(n)
 
-plot_anual_abs <- ggplot(mortes_ano_decada, aes(x = ano_ocorrencia, y = n)) +
-  geom_col(fill = onsv_palette$blue) +
-  labs(x = NULL, y = NULL) +
-  theme_light() +
-  theme(
-    panel.grid.minor.y = element_blank(),
-    panel.grid.major.x = element_blank(),
-    panel.border = element_blank(),
-    axis.ticks = element_blank()
-  ) +
-  geom_text(aes(label = format(n, big.mark = ".", decimal.mark = ",")), nudge_y = -1200, size = 3, color = "white")
+shared_geral <- SharedData$new(df_completo)
 
+filtro_unificado <- filter_select(
+  id = "selector_onsv_unico",
+  label = "Selecione a UF:",
+  sharedData = shared_geral,
+  group = ~nome_uf_ocor,
+  multiple = FALSE
+)
 
-p1 <- ggplotly(plot_anual_abs, tooltip = NULL)
-p1
+p1 <- plot_ly(shared_geral, x = ~ano_ocorrencia, y = ~n, elementId = "meu_grafico_onsv") |> 
+  add_bars(
+    marker = list(color = onsv_palette$blue),
+    text = ~format(n, big.mark = ".", decimal.mark = ",", scientific = FALSE, trim = TRUE),
+    textposition = 'inside', 
+    textangle = 0,
+    hoverinfo = "none"
+  ) |> 
+  layout(
+    yaxis = list(
+      title = "", 
+      showgrid = FALSE, 
+      zeroline = FALSE,
+      # --- CONFIGURAÇÃO PARA REMOVER O 'k' ---
+      tickformat = ".0f",        # Força o número a ser tratado como inteiro
+      exponentformat = "none",   # Proíbe terminantemente o uso de 'k', 'M' ou potências de 10
+      separatethousands = TRUE,  # Garante o ponto como separador (ex: 40.000)
+      # ---------------------------------------
+      autorange = TRUE
+    ),
+    xaxis = list(title = ""),
+    showlegend = FALSE,
+    margin = list(t = 50)
+  ) |> 
+  config(displayModeBar = FALSE)
+
+#
+p2 <- plot_ly(shared_geral, x = ~ano_ocorrencia, y = ~var, elementId = "grafico_var_final") |> 
+  add_bars(
+    color = ~var_signal,
+    colors = c("Aumento" = onsv_palette$red, "Queda" = onsv_palette$green),
+    text = ~scales::percent(var, accuracy = 0.1, decimal.mark = ","),
+    textposition = "outside",
+    hoverinfo = "text",
+    cliponaxis = FALSE,
+    width = 0.7,
+  ) |> 
+  layout(
+    yaxis = list(tickformat = ".1%", title = "Variação (%)", showgrid = TRUE, zeroline = TRUE),
+    xaxis = list(title = ""),
+    showlegend = FALSE,
+    margin = list(t = 50)
+  ) |> 
+  config(displayModeBar = FALSE)
+
+# Exibição dos dois controlados pelo mesmo filtro
+bscols(widths = c(4,12,12), filtro_unificado, p1, p2)
 ```
-
-
 
 ```{r}
+#| echo: false
+#| results: asis
+cat("
+<script>
+(function() {
+  var forceOnsvStyle = function() {
+    var $select = $('#selector_onsv_unico select');
+    
+    if ($select.length > 0 && $select[0].selectize) {
+      var selectize = $select[0].selectize;
+      
+      // Impede que o seletor aceite valores vazios internamente
+      selectize.settings.allowEmptyOption = false;
+      
+      if (selectize.options['']) {
+        selectize.removeOption('');
+      }
+      
+      // Função para garantir que o Brasil esteja sempre selecionado se vazio
+      var garantirSelecao = function(val) {
+        if (!val || val === '' || val.length === 0) {
+          selectize.setValue('Brasil');
+        }
+      };
 
-plot_anual_var <- mortes_ano_decada |>
-  mutate(var_signal = if_else(var > 0, "up", "down")) |> 
-  ggplot(aes(x = ano_ocorrencia, y = var, color = var_signal)) +
-  geom_segment(
-    aes(x = ano_ocorrencia, xend = ano_ocorrencia, y = 0, yend = var)
-  ) +
-  geom_point(pch = 21, fill = "white", size = 1.5) +
-  scale_color_manual(
-    values = c("down" = onsv_palette$green, "up" = onsv_palette$red)
-  ) +
-  scale_y_continuous(limits = c(-0.12, 0.12), labels = scales::percent) +
-  theme_light() +
-  theme(
-    panel.grid.minor.y = element_blank(),
-    legend.position = "none",
-    panel.border = element_blank(),
-    axis.ticks = element_blank()
-  ) +
-  geom_text(
-    aes(
-      label = scales::percent(var, accuracy = 0.01, decimal.mark = ",")
-    ), 
-    nudge_x = -0.38, 
-    size = 3
-  ) +
-  labs(x = NULL, y = NULL)
+      // Verifica a seleção inicial
+      garantirSelecao(selectize.getValue());
+      
+      // Configura o evento de mudança
+      selectize.on('change', function(value) {
+        // Se o usuário limpar, força Brasil antes de atualizar os gráficos
+        garantirSelecao(value);
 
-p2 <- ggplotly(plot_anual_var, tooltip = NULL)
-p2
+        setTimeout(function() {
+          var p1 = document.getElementById('meu_grafico_onsv');
+          var p2 = document.getElementById('grafico_var_final');
+          if (p1) Plotly.relayout(p1, { 'yaxis.autorange': true });
+          if (p2) Plotly.relayout(p2, { 'yaxis.autorange': true });
+        }, 150);
+      });
+
+      console.log('Sucesso: Trava anti-vazio ativada!');
+    }
+  };
+
+  var attempts = 0;
+  var timer = setInterval(function() {
+    forceOnsvStyle();
+    attempts++;
+    if (attempts > 50) clearInterval(timer); 
+  }, 100);
+})();
+</script>
+")
 ```
+
 
 # Óbitos por regiões
 
@@ -296,48 +375,123 @@ Considerando o modo de transporte em que a vítima se encontrava durante o sinis
 O modo **Triciclo** apresentou uma redução de 6,82% e a classificação **Outros** apresentou uma redução de 5,83%.
 
 ```{r}
-obitos_modais <- rtdeaths_tbl |> 
-  count(ano_ocorrencia, modal_vitima) |> 
+library(DT)
+
+df_tabela_modais <- rtdeaths_tbl |> 
   filter(ano_ocorrencia > 2022) |> 
+  count(ano_ocorrencia, nome_uf_ocor, modal_vitima) |> 
   pivot_wider(
     names_from = ano_ocorrencia,
     values_from = n,
     names_prefix = "ano_"
   ) |> 
+  # Substitui NA por 0 apenas nas colunas dos anos
+  mutate(across(starts_with("ano_"), ~replace_na(.x, 0))) |> 
   mutate(
     var = ano_2024 - ano_2023,
-    var_perc = var / ano_2023
+    # Evita divisão por zero se 2023 for 0
+    var_perc = if_else(ano_2023 > 0, var / ano_2023, 0) 
+  ) |> 
+  # Adicionando o Total Brasil para a tabela
+  bind_rows(
+    rtdeaths_tbl |> 
+      filter(ano_ocorrencia > 2022) |> 
+      count(ano_ocorrencia, modal_vitima) |> 
+      pivot_wider(names_from = ano_ocorrencia, values_from = n, names_prefix = "ano_") |> 
+      mutate(across(starts_with("ano_"), ~replace_na(.x, 0))) |> 
+      mutate(
+        var = ano_2024 - ano_2023,
+        var_perc = if_else(ano_2023 > 0, var / ano_2023, 0),
+        nome_uf_ocor = "Brasil"
+      )
   )
 
-gt_modais <- obitos_modais |>
-  arrange(-var_perc) |> 
-  gt(rowname_col = "modal_vitima") |> 
-  fmt_number(
-    columns = ano_2023:var,
-    sep_mark = ".",
-    dec_mark = ",",
-    decimals = 0
-  ) |> 
-  fmt_percent(
-    columns = var_perc,
-    sep_mark = ".",
-    dec_mark = ",",
-    decimals = 2
-  ) |> 
-  data_color(
-    columns = var_perc,
-    palette = "RdBu",
-    domain = c(-0.5, 0.5),
-    reverse = T
-  ) |> 
-  cols_label(
-    ano_2023 = "2023",
-    ano_2024 = "2024",
-    var = "Variação",
-    var_perc = "Variação percentual"
+shared_tabela <- SharedData$new(df_tabela_modais, key = ~nome_uf_ocor)
+
+
+filtro_tabela <- filter_select(
+  id = "sel_tabela_modais",
+  label = "Selecione a UF:",
+  sharedData = shared_tabela,
+  group = ~nome_uf_ocor,
+  multiple = F
+)
+
+cores_heatmap <- c(
+  '#315066', '#4A708B', '#6388A3', '#82A3BB', '#A2BDD3', '#C1D5E4', # 6 tons de azul
+  '#F7F7F7', '#F7F7F7',                                           # 2 tons neutros (centro)
+  '#FCE5D8', '#FAD4C0', '#F7B094', '#EE8D6D', '#D66B54', '#B34F3D'  # 6 tons de coral
+)
+intervalos <- c(-0.5, -0.4, -0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5)
+
+tabela_modais_dt <- datatable(
+  shared_tabela,
+  rownames = FALSE,
+  elementId = "tabela_onsv_dt",
+  colnames = c("UF", "Modal da Vítima", "2023", "2024", "Variação", "Variação (%)"),
+  options = list(
+    dom = 't', 
+    pageLength = 30,
+    order = list(list(5, 'desc')),
+    columnDefs = list(list(visible = FALSE, targets = 0)) 
+  )
+) |> 
+  formatCurrency(c('ano_2023', 'ano_2024', 'var'), currency = "", interval = 3, mark = ".", dec.mark = ",") |> 
+  formatPercentage('var_perc', 2, dec.mark = ",", mark = ".") |>
+  formatStyle(
+    'var_perc',
+    backgroundColor = styleInterval(intervalos, cores_heatmap),
+    # Ajusta a cor do texto para branco em cores muito escuras para leitura
+    color = styleInterval(c(-0.3, 0.3), c('white', 'black', 'white')),
+    fontWeight = 'bold'
   )
 
-gt_modais
+# Exibição
+bscols(widths = c(4,12), filtro_tabela, tabela_modais_dt)
+```
+```{r}
+#| echo: false
+#| results: asis
+cat("
+<script>
+(function() {
+  var fixTableDashboard = function() {
+    var $select = $('#sel_tabela_modais select');
+    var tableNode = $('#tabela_onsv_dt table');
+
+    if ($select.length > 0 && $select[0].selectize && tableNode.length > 0) {
+      var selectize = $select[0].selectize;
+      
+      if (selectize.options['']) {
+        selectize.removeOption('');
+      }
+      
+      if (!selectize.getValue()) {
+        selectize.setValue('Brasil');
+      }
+      
+      selectize.on('change', function() {
+        setTimeout(function() {
+          var table = tableNode.DataTable();
+          table.order([5, 'desc']).draw();
+        }, 300);
+      });
+
+      selectize.on('blur', function() {
+        var val = selectize.getValue();
+        if (!val || val === '' || val.length === 0) {
+          selectize.setValue('Brasil');
+        }
+      });
+      
+      clearInterval(timerTabHeatmap);
+    }
+  };
+
+  var timerTabHeatmap = setInterval(fixTableDashboard, 200);
+})();
+</script>
+")
 ```
 
 # Sexo e pirâmide etária das vítimas
@@ -349,66 +503,114 @@ Considerando apenas as vítimas fatais do sexo feminino, a faixa etária com mai
 Considerando as vítimas fatais do sexo masculino, a faixa etária com o maior aumento de mortes entre 2023 e 2024 aconteceu entre 60 a 64 anos, com uma variação de **17,20%**. A faixa etária com a maior redução se deu entre 70 a 74 anos, com uma variação de **-2,47%**.
 
 ```{r}
-obitos_piramide <- rtdeaths_tbl |> 
-  count(ano_ocorrencia, sexo_vitima, faixa_etaria_vitima) |> 
-  filter(ano_ocorrencia > 2022) |> 
-  drop_na()
-
-tbl_piramide <- obitos_piramide |> 
+df_piramide_etaria <- rtdeaths_tbl |>
+  filter(ano_ocorrencia > 2022) |>
+  count(ano_ocorrencia, nome_uf_ocor, sexo_vitima, faixa_etaria_vitima) |>
+  drop_na() |>
   pivot_wider(
     names_from = c(sexo_vitima, ano_ocorrencia),
     values_from = n,
     names_sep = "_"
-  ) |> 
+  )|>
+  bind_rows(
+    rtdeaths_tbl |>
+      filter(ano_ocorrencia > 2022) |>
+      count(ano_ocorrencia, sexo_vitima, faixa_etaria_vitima) |>
+      pivot_wider(names_from = c(sexo_vitima, ano_ocorrencia), values_from = n, names_sep = "_") |>
+      mutate(nome_uf_ocor = "Brasil")
+  ) |>
+  mutate(across(starts_with("Feminino") | starts_with("Masculino"), ~replace_na(.x, 0))) |>
   mutate(
-    var_fem = (Feminino_2024 - Feminino_2023) / Feminino_2023,
-    var_masc = (Masculino_2024 - Masculino_2023) / Masculino_2023
-  ) |> 
+   var_fem = if_else(Feminino_2023 > 0, (Feminino_2024 - Feminino_2023) / Feminino_2023, 0),
+    var_masc = if_else(Masculino_2023 > 0, (Masculino_2024 - Masculino_2023) / Masculino_2023, 0)
+  ) |>
+  select(faixa_etaria_vitima, Feminino_2023, Masculino_2023, Feminino_2024, Masculino_2024, var_fem, var_masc, nome_uf_ocor) |> 
   arrange(desc(faixa_etaria_vitima))
 
-gt_piramide <- tbl_piramide |>
-  gt(rowname_col = "faixa_etaria_vitima") |> 
-  fmt_number(
-    columns = Feminino_2023:Masculino_2024,
-    sep_mark = ".",
-    dec_mark = ",",
-    decimals = 0
-  ) |> 
-  fmt_percent(
-    columns = var_fem:var_masc,
-    sep_mark = ".",
-    dec_mark = ",",
-    decimals = 2
-  ) |> 
-  data_color(
-    columns = var_fem:var_masc,
-    palette = "RdBu",
-    domain = c(-0.35, 0.35),
-    reverse = T
-  ) |>
-  tab_spanner(
-    label = "2023",
-    columns = Feminino_2023:Masculino_2023
-  ) |> 
-  tab_spanner(
-    label = "2024",
-    columns = Feminino_2024:Masculino_2024
-  ) |> 
-  tab_spanner(
-    label = "Variação percentual",
-    columns = var_fem:var_masc
-  ) |> 
-  cols_label(
-    Feminino_2023 = "Feminino",
-    Masculino_2023 = "Masculino",
-    Feminino_2024 = "Feminino",
-    Masculino_2024 = "Masculino",
-    var_fem = "Feminino",
-    var_masc = "Masculino"
+shared_piramide <- SharedData$new(df_piramide_etaria, group = "piramide_etaria")
+
+filtro_piramide <- filter_select(
+  id = "sel_piramide_etaria",
+  label = "Selecione a UF",
+  sharedData = shared_piramide,
+  group = ~nome_uf_ocor,
+  multiple = F
+)
+
+sketch <- htmltools::withTags(table(
+  class = 'display',
+  thead(
+    tr(
+      th(rowspan = 2, 'Faixa Etária'),
+      th(class = 'dt-center', colspan = 2, '2023'),
+      th(class = 'dt-center', colspan = 2, '2024'),
+      th(class = 'dt-center', colspan = 2, 'Variação (%)')
+    ),
+    tr(
+      lapply(c('Feminino', 'Masculino', 'Feminino', 'Masculino', 'Feminino', 'Masculino'), th)
+    )
+  )
+))
+
+cores_suaves <- c(
+  '#315066', '#4A708B', '#6388A3', '#82A3BB', '#A2BDD3', '#C1D5E4', # 6 tons de azul
+  '#F7F7F7', '#F7F7F7',                                           # 2 tons neutros (centro)
+  '#FCE5D8', '#FAD4C0', '#F7B094', '#EE8D6D', '#D66B54', '#B34F3D'  # 6 tons de coral
+)
+
+# Intervalos de variação (mantendo a lógica de 10% em 10%)
+brks <- c(-0.5, -0.4, -0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5)
+
+tabela_piramide_dt <- datatable(
+  shared_piramide,
+  container = sketch,
+  rownames = FALSE,
+  elementId = "tabela_piramide_onsv",
+  options = list(
+    dom = 't', 
+    pageLength = 50,
+    columnDefs = list(list(visible = FALSE, targets = 7)) # Esconde nome_uf_ocor
+  )
+) |> 
+  formatCurrency(2:5, currency = "", interval = 3, mark = ".", dec.mark = ",", digits = 0) |> 
+  formatPercentage(6:7, 2, dec.mark = ",", mark = ".") |> 
+  formatStyle(
+    c('var_fem', 'var_masc'),
+    backgroundColor = styleInterval(brks, cores_suaves),
+ color = styleInterval(c(-0.4, 0.4), c('white', '#444444', 'white')),
+    fontWeight = '500' 
   )
 
-gt_piramide
+# Exibição
+bscols(widths = c(4,12), filtro_piramide, tabela_piramide_dt)
+
 ```
+```{r}
+#| echo: false
+#| results: asis
+cat("
+<script>
+(function() {
+  var fixPiramide = function() {
+    var $select = $('#sel_piramide_etaria select');
+    if ($select.length > 0 && $select[0].selectize) {
+      var selectize = $select[0].selectize;
+      selectize.removeOption('');
+      if (!selectize.getValue()) selectize.setValue('Brasil');
+      
+      selectize.on('blur', function() {
+        if (!selectize.getValue()) selectize.setValue('Brasil');
+      });
+      clearInterval(timerPir);
+    }
+  };
+  var timerPir = setInterval(fixPiramide, 200);
+})();
+</script>
+")
+
+```
+
 
 # Faixa etária e modos de transporte da vítimas
 
@@ -448,3 +650,4 @@ plot_faixas_modais <- tbl_faixas_modais |>
 
 ggplotly(plot_faixas_modais, tooltip = "text")
 ```
+
