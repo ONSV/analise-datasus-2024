@@ -14,7 +14,7 @@ author:
     orcid: 0000-0001-6447-1504
     
 
-date: last-modified
+date: 2026-01-14
 ---
 
 ```{r}
@@ -88,11 +88,9 @@ p1 <- plot_ly(shared_geral, x = ~ano_ocorrencia, y = ~n, elementId = "meu_grafic
       title = "", 
       showgrid = FALSE, 
       zeroline = FALSE,
-      # --- CONFIGURAÇÃO PARA REMOVER O 'k' ---
-      tickformat = ".0f",        # Força o número a ser tratado como inteiro
-      exponentformat = "none",   # Proíbe terminantemente o uso de 'k', 'M' ou potências de 10
-      separatethousands = TRUE,  # Garante o ponto como separador (ex: 40.000)
-      # ---------------------------------------
+      tickformat = ".0f",        
+      exponentformat = "none",   
+      separatethousands = TRUE,  
       autorange = TRUE
     ),
     xaxis = list(title = ""),
@@ -120,7 +118,6 @@ p2 <- plot_ly(shared_geral, x = ~ano_ocorrencia, y = ~var, elementId = "grafico_
   ) |> 
   config(displayModeBar = FALSE)
 
-# Exibição dos dois controlados pelo mesmo filtro
 bscols(widths = c(4,12,12), filtro_unificado, p1, p2)
 ```
 
@@ -136,24 +133,20 @@ cat("
     if ($select.length > 0 && $select[0].selectize) {
       var selectize = $select[0].selectize;
       
-      // Impede que o seletor aceite valores vazios internamente
       selectize.settings.allowEmptyOption = false;
       
       if (selectize.options['']) {
         selectize.removeOption('');
       }
       
-      // Função para garantir que o Brasil esteja sempre selecionado se vazio
       var garantirSelecao = function(val) {
         if (!val || val === '' || val.length === 0) {
           selectize.setValue('Brasil');
         }
       };
 
-      // Verifica a seleção inicial
       garantirSelecao(selectize.getValue());
       
-      // Configura o evento de mudança
       selectize.on('change', function(value) {
         // Se o usuário limpar, força Brasil antes de atualizar os gráficos
         garantirSelecao(value);
@@ -385,14 +378,11 @@ df_tabela_modais <- rtdeaths_tbl |>
     values_from = n,
     names_prefix = "ano_"
   ) |> 
-  # Substitui NA por 0 apenas nas colunas dos anos
   mutate(across(starts_with("ano_"), ~replace_na(.x, 0))) |> 
   mutate(
     var = ano_2024 - ano_2023,
-    # Evita divisão por zero se 2023 for 0
     var_perc = if_else(ano_2023 > 0, var / ano_2023, 0) 
   ) |> 
-  # Adicionando o Total Brasil para a tabela
   bind_rows(
     rtdeaths_tbl |> 
       filter(ano_ocorrencia > 2022) |> 
@@ -418,9 +408,9 @@ filtro_tabela <- filter_select(
 )
 
 cores_heatmap <- c(
-  '#315066', '#4A708B', '#6388A3', '#82A3BB', '#A2BDD3', '#C1D5E4', # 6 tons de azul
-  '#F7F7F7', '#F7F7F7',                                           # 2 tons neutros (centro)
-  '#FCE5D8', '#FAD4C0', '#F7B094', '#EE8D6D', '#D66B54', '#B34F3D'  # 6 tons de coral
+  '#315066', '#4A708B', '#6388A3', '#82A3BB', '#A2BDD3', '#C1D5E4', 
+  '#F7F7F7', '#F7F7F7',                                           
+  '#FCE5D8', '#FAD4C0', '#F7B094', '#EE8D6D', '#D66B54', '#B34F3D'  
 )
 intervalos <- c(-0.5, -0.4, -0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5)
 
@@ -436,17 +426,15 @@ tabela_modais_dt <- datatable(
     columnDefs = list(list(visible = FALSE, targets = 0)) 
   )
 ) |> 
-  formatCurrency(c('ano_2023', 'ano_2024', 'var'), currency = "", interval = 3, mark = ".", dec.mark = ",") |> 
+  formatCurrency(c('ano_2023', 'ano_2024', 'var'), currency = "", interval = 3, mark = ".", dec.mark = ",", digits = 0) |> 
   formatPercentage('var_perc', 2, dec.mark = ",", mark = ".") |>
   formatStyle(
     'var_perc',
     backgroundColor = styleInterval(intervalos, cores_heatmap),
-    # Ajusta a cor do texto para branco em cores muito escuras para leitura
     color = styleInterval(c(-0.3, 0.3), c('white', 'black', 'white')),
     fontWeight = 'bold'
   )
 
-# Exibição
 bscols(widths = c(4,12), filtro_tabela, tabela_modais_dt)
 ```
 ```{r}
@@ -524,8 +512,10 @@ df_piramide_etaria <- rtdeaths_tbl |>
    var_fem = if_else(Feminino_2023 > 0, (Feminino_2024 - Feminino_2023) / Feminino_2023, 0),
     var_masc = if_else(Masculino_2023 > 0, (Masculino_2024 - Masculino_2023) / Masculino_2023, 0)
   ) |>
-  select(faixa_etaria_vitima, Feminino_2023, Masculino_2023, Feminino_2024, Masculino_2024, var_fem, var_masc, nome_uf_ocor) |> 
-  arrange(desc(faixa_etaria_vitima))
+  mutate(across(c(Feminino_2023, Masculino_2023, Feminino_2024, Masculino_2024), as.integer)) |> 
+  select(faixa_etaria_vitima, Feminino_2023, Masculino_2023, Feminino_2024, Masculino_2024, var_fem, var_masc, nome_uf_ocor) |>  
+  arrange(desc(faixa_etaria_vitima)) |>
+  drop_na(faixa_etaria_vitima)
 
 shared_piramide <- SharedData$new(df_piramide_etaria, group = "piramide_etaria")
 
@@ -553,12 +543,12 @@ sketch <- htmltools::withTags(table(
 ))
 
 cores_suaves <- c(
-  '#315066', '#4A708B', '#6388A3', '#82A3BB', '#A2BDD3', '#C1D5E4', # 6 tons de azul
-  '#F7F7F7', '#F7F7F7',                                           # 2 tons neutros (centro)
-  '#FCE5D8', '#FAD4C0', '#F7B094', '#EE8D6D', '#D66B54', '#B34F3D'  # 6 tons de coral
+  '#315066', '#4A708B', '#6388A3', '#82A3BB', '#A2BDD3', '#C1D5E4', 
+  '#F7F7F7', '#F7F7F7',                                           
+  '#FCE5D8', '#FAD4C0', '#F7B094', '#EE8D6D', '#D66B54', '#B34F3D'  
 )
 
-# Intervalos de variação (mantendo a lógica de 10% em 10%)
+
 brks <- c(-0.5, -0.4, -0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5)
 
 tabela_piramide_dt <- datatable(
@@ -569,11 +559,14 @@ tabela_piramide_dt <- datatable(
   options = list(
     dom = 't', 
     pageLength = 50,
-    columnDefs = list(list(visible = FALSE, targets = 7)) # Esconde nome_uf_ocor
+    columnDefs = list(
+      list(visible = FALSE, targets = 7),
+      list(className = 'dt-right', targets = 1:6)
+      ) 
   )
 ) |> 
-  formatCurrency(2:5, currency = "", interval = 3, mark = ".", dec.mark = ",", digits = 0) |> 
-  formatPercentage(6:7, 2, dec.mark = ",", mark = ".") |> 
+ formatRound(2:5, digits = 0, interval = 3, mark = ".", dec.mark = ",") |> 
+  formatPercentage(6:7, 2, dec.mark = ",", mark = ".")  |> 
   formatStyle(
     c('var_fem', 'var_masc'),
     backgroundColor = styleInterval(brks, cores_suaves),
@@ -581,7 +574,7 @@ tabela_piramide_dt <- datatable(
     fontWeight = '500' 
   )
 
-# Exibição
+
 bscols(widths = c(4,12), filtro_piramide, tabela_piramide_dt)
 
 ```
